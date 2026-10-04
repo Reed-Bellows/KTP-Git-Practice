@@ -5,11 +5,29 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+RESET = "\033[0m"
+RED_TEXT = "\033[1;31m"
+BLACK_TEXT = "\033[30m"
+LIGHT_BG = "\033[46m"
+DARK_BG = "\033[44m"
+
 BOARD_SIZE = 8
 RED = "r"
 BLACK = "b"
 PLAYERS = (RED, BLACK)
 PLAYER_NAMES = {RED: "Red", BLACK: "Black"}
+PIECE_SYMBOLS = {
+	RED: "●",
+	BLACK: "●",
+	RED.upper(): "●",
+	BLACK.upper(): "●",
+}
+PIECE_COLORS = {
+	RED: RED_TEXT,
+	BLACK: BLACK_TEXT,
+	RED.upper(): RED_TEXT,
+	BLACK.upper(): BLACK_TEXT,
+}
 
 
 @dataclass(frozen=True)
@@ -126,22 +144,50 @@ class CheckersGame:
 			raise ValueError("Enter a starting square and destination, such as b6 a5.")
 		return Move(CheckersGame.parse_square(parts[0]), CheckersGame.parse_square(parts[1]))
 
+	@staticmethod
+	def square_to_text(square):
+		row, col = square
+		return f"{chr(ord('a') + col)}{8 - row}"
+
 	def display(self):
-		print("\n    a   b   c   d   e   f   g   h")
-		print("  +---+---+---+---+---+---+---+---+")
+		print("\n      a   b   c   d   e   f   g   h")
+		print("    +---+---+---+---+---+---+---+---+")
 		for row in range(BOARD_SIZE):
-			cells = [self.board[row][col] or ("." if (row + col) % 2 else " ") for col in range(BOARD_SIZE)]
-			print(f"{8 - row} | " + " | ".join(cells) + f" | {8 - row}")
-			print("  +---+---+---+---+---+---+---+---+")
-		print("    a   b   c   d   e   f   g   h")
-		print("Pieces: r/b are men; R/B are kings.\n")
+			cells = []
+			for col in range(BOARD_SIZE):
+				piece = self.board[row][col]
+				bg = LIGHT_BG if (row + col) % 2 == 0 else DARK_BG
+				if piece is None:
+					cells.append(f"{bg}   {RESET}")
+				else:
+					cells.append(f"{bg}{PIECE_COLORS.get(piece, RED_TEXT)}{PIECE_SYMBOLS.get(piece, piece)}{RESET}")
+			print(f" {8 - row} | " + " | ".join(cells) + f" | {8 - row}")
+			print("    +---+---+---+---+---+---+---+---+")
+		print("      a   b   c   d   e   f   g   h")
+		print("Pieces: red and black circles are color-coded.\n")
+
+
+def prompt_for_square(label):
+	while True:
+		try:
+			text = input(f"{label}: ").strip()
+		except (EOFError, KeyboardInterrupt):
+			print("\nGame ended.")
+			raise SystemExit
+		if text.lower() in {"quit", "exit"}:
+			print("Game ended.")
+			raise SystemExit
+		try:
+			return CheckersGame.parse_square(text)
+		except ValueError as error:
+			print(error)
 
 
 def play():
 	game = CheckersGame()
-	print("Two-player Checkers. Enter moves like 'b6 a5'; type 'quit' to stop.")
+	print("Two-player Checkers. Use the keyboard to select a piece and a destination.")
+	print("Terminal click support is not available; type coordinates like 'b6 a5'.")
 	print("Captures are mandatory. Complete multiple jumps with the same piece.")
-
 	while True:
 		game.display()
 		winner = game.winner()
@@ -151,34 +197,66 @@ def play():
 
 		player = PLAYER_NAMES[game.current_player]
 		if game.forced_piece:
-			print("You must continue jumping with the selected piece.")
-		try:
-			entered_move = input(f"{player} to move: ").strip()
-		except (EOFError, KeyboardInterrupt):
-			print("\nGame ended.")
-			return
-		if entered_move.lower() in {"quit", "exit"}:
-			print("Game ended.")
-			return
+			print(f"You must continue jumping with {CheckersGame.square_to_text(game.forced_piece)}.")
 
-		try:
-			requested_move = game.parse_move(entered_move)
-		except ValueError as error:
-			print(error)
-			continue
+		while True:
+			try:
+				entered_move = input(f"{player} to move: ").strip()
+			except (EOFError, KeyboardInterrupt):
+				print("\nGame ended.")
+				return
+			if entered_move.lower() in {"quit", "exit"}:
+				print("Game ended.")
+				return
 
-		legal_move = next(
-			(
-				move
-				for move in game.legal_moves()
-				if move.start == requested_move.start and move.end == requested_move.end
-			),
-			None,
-		)
-		if legal_move is None:
-			print("That move is not legal. Check the board and try again.")
-			continue
-		game.apply_move(legal_move)
+			if " " in entered_move:
+				try:
+					requested_move = game.parse_move(entered_move)
+				except ValueError as error:
+					print(error)
+					continue
+				legal_move = next(
+					(
+						move
+						for move in game.legal_moves()
+						if move.start == requested_move.start and move.end == requested_move.end
+					),
+					None,
+				)
+				if legal_move is None:
+					print("That move is not legal. Check the board and try again.")
+					continue
+				game.apply_move(legal_move)
+				break
+
+			try:
+				start = CheckersGame.parse_square(entered_move)
+			except ValueError as error:
+				print(error)
+				continue
+			piece = game.board[start[0]][start[1]]
+			if piece is None:
+				print("That square is empty. Pick one of your pieces.")
+				continue
+			if game.owner(piece) != game.current_player:
+				print("Pick one of your own pieces.")
+				continue
+			start_moves = [move for move in game.legal_moves() if move.start == start]
+			if not start_moves:
+				print("That piece has no legal moves.")
+				continue
+			if game.forced_piece and start != game.forced_piece:
+				print(f"You must keep using {CheckersGame.square_to_text(game.forced_piece)}.")
+				continue
+			break
+		if " " not in entered_move:
+			end = prompt_for_square(f"{player} choose destination for {CheckersGame.square_to_text(start)}")
+			legal_move = next((move for move in start_moves if move.end == end), None)
+			if legal_move is None:
+				print("That destination is not legal for that piece. Try again.")
+				continue
+			game.apply_move(legal_move)
+			break
 
 
 if __name__ == "__main__":
