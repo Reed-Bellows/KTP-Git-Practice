@@ -5,7 +5,7 @@
 From this folder, start the game in a terminal with:
 
 ```bash
-python3 game.py
+python3 checkers.py
 ```
 
 ## How to play
